@@ -5,7 +5,7 @@ import "regenerator-runtime/runtime";
 import axios from "axios";
 
 
-
+import VideoTestReportModal from "./videoTestReportModal";
 
 
 
@@ -76,6 +76,131 @@ import Webcam from "react-webcam";
 export default function Test() {
 
 
+const [showReport, setShowReport] = useState(false);
+
+
+
+  const [mediaStream, setMediaStream] = useState(null);
+  const [recordedChunks, setRecordedChunks] = useState([]);
+  const [processing, setProcessing] = useState(false);
+  const [response, setResponse] = useState(null);
+  const [dominantEmotion, setDominantEmotion] = useState("Confident");
+  const videoRef = useRef();
+
+  const startRecording = async () => {
+  setRecordedChunks([]);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      setMediaStream(stream);
+      const recorder = new MediaRecorder(stream);
+      recorder.addEventListener("dataavailable", (event) => {
+        setRecordedChunks((prev) => [...prev, event.data]);
+      });
+      recorder.start();
+      console.log('recording started')
+      videoRef.current.srcObject = stream; // Set the MediaStream object as the source for the video element
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaStream) {
+    console.log('stopping recording')
+      mediaStream.getTracks().forEach((track) => track.stop());
+    }
+  };
+
+
+  const handleSubmit = async (event) => {
+    //event.preventDefault();
+
+    if (recordedChunks.length === 0 ) {
+      console.log("Please start recording and enter a user ID and test ID.");
+      //return;
+    }
+
+    setProcessing(true);
+
+    const formData = new FormData();
+    const blob = new Blob(recordedChunks, { type: "video/mp4" });
+    formData.append("video", blob, "proctor_video.mp4");
+    formData.append("user_id", userId);
+    formData.append("test_id", testId);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/get_video", {
+        method: "POST",
+        headers: {
+          Cookie: "csrftoken=VSOQLIi31g7AIVCbLd23U0bT33sBjXlTp1toBFgcSeu9DoUCduj7CnHDvPVbLWfn",
+        },
+        body: formData,
+      });
+      const data = await response.json();
+      console.log(data);
+      setResponse(data);
+      setDominantEmotion(data.done.dominant_emotion);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const recordedVideoUrl = recordedChunks.length > 0 ? URL.createObjectURL(new Blob(recordedChunks, { type: "video/mp4" })) : null;
+
+useEffect(() => {
+  let mediaRecorder = null;
+
+  const getMedia = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+
+      const videoElement = videoRef.current;
+      if (videoElement) {
+        // Set the srcObject property of the video element to the MediaStream object
+        videoElement.srcObject = stream;
+
+        // Create a MediaRecorder object and pass the MediaStream object to it
+        mediaRecorder = new MediaRecorder(stream);
+
+        // Add event listeners to handle the dataavailable and stop events
+        mediaRecorder.addEventListener("dataavailable", (event) => {
+          // Send the recorded chunk of data to the server
+          //sendChunkToServer(event.data);
+        });
+        mediaRecorder.addEventListener("stop", () => {
+          // Stop recording and close the MediaStream
+          stream.getTracks().forEach((track) => track.stop());
+        });
+
+        // Start recording
+        mediaRecorder.start();
+      }
+    } catch (error) {
+      console.error(error);
+      // handle the error case here
+    }
+  };
+
+  getMedia();
+
+  return () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+    }
+  };
+}, [testType]);
+
+
+
+
 const QuizQuestion = ({ currentQuestion, handleUsersSelctionChange, handleUsersMriSelectionChange, handleUserDiscriptionChange, discriptionValue, optionValue, onChange, handleRecording, listening, handlePreviousClick, handleNextClick, handleResetReportData, currentPage }) => {
 
   const [buttonStyle, setButtonStyle] = useState("primary");
@@ -85,53 +210,7 @@ const QuizQuestion = ({ currentQuestion, handleUsersSelctionChange, handleUsersM
   }
   }
 
-  const [videoStream, setVideoStream] = useState(null);
-  const [recording, setRecording] = useState(true);
-  const videoRecorder = useRef(null);
-  const recordedChunks = useRef([]);
 
-  useEffect(() => {
-    startRecording();
-
-    // Cleanup function that is called when the component unmounts
-    return () => {
-      stopRecording();
-    };
-  }, []);
-
-  async function startRecording() {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    setVideoStream(stream);
-    console.log('started')
-
-    // Create a new MediaRecorder object to record the video stream
-    videoRecorder.current = new MediaRecorder(stream, {
-      mimeType: "video/webm; codecs=vp9",
-    });
-
-    // Add a listener to the MediaRecorder to handle the dataavailable event
-    videoRecorder.current.addEventListener("dataavailable", handleDataAvailable);
-
-    // Start the MediaRecorder
-    videoRecorder.current.start();
-  }
-
-  async function stopRecording() {
-    if (!videoStream) {
-      return;
-    }
-
-    videoStream.getTracks().forEach((track) => track.stop());
-
-    // Stop the MediaRecorder
-    videoRecorder.current.stop();
-  }
-
-  function handleDataAvailable(event) {
-    if (event.data.size > 0) {
-      recordedChunks.current.push(event.data);
-    }
-  }
 
 
 const [code, setCode] = useState("// initial code here");
@@ -152,47 +231,6 @@ useEffect(() => {
   editor.on('change', onChange);
   editor.setValue(code, -1);
 }, [code]);
-
-
-useEffect(() => {
-  if (!videoStream) {
-    return;
-  }
-
-  const options = { mimeType: "video/webm;codecs=h264" };
-  videoRecorder.current = new MediaRecorder(videoStream, options);
-
-  videoRecorder.current.ondataavailable = (e) => {
-    if (e.data.size > 0) {
-      recordedChunks.current.push(e.data);
-    }
-  };
-
-  videoRecorder.current.start(1000);
-}, [videoStream]);
-
-useEffect(() => {
-  if (!recording) {
-    videoRecorder.current.stop();
-  } else if (videoRecorder.current && videoRecorder.current.state === "inactive") {
-    videoRecorder.current.start(1000);
-  }
-}, [recording]);
-
-useEffect(() => {
-  if (!recording) {
-    return;
-  }
-
-  const intervalId = setInterval(() => {
-    stopRecording();
-    startRecording();
-  }, 25000);
-
-  return () => {
-    clearInterval(intervalId);
-  };
-}, [recording]);
 
 
 const [reportData, setReportData] = useState({
@@ -269,7 +307,7 @@ const GetReport = async (currentQuestion) => {
   const [timeLeft, setTimeLeft] = useState(`00:00:00`);
   const [isTestEndMsgModal, setIsTestEndMsgModal] = useState(false);
   const [mirrorMode, setMirrorMode] = useState(false);
-  const videoRef = useRef(null);
+
   const mediaRecorderRef = useRef(null);
 
   const [audioEmotionalReport, setAudioEmotionalReport] = useState({
@@ -331,51 +369,7 @@ const GetReport = async (currentQuestion) => {
     setIsFullScreen(true);
   }, []);
 
-useEffect(() => {
-  let mediaRecorder = null;
 
-  const getMedia = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-
-      const videoElement = videoRef.current;
-      if (videoElement) {
-        // Set the srcObject property of the video element to the MediaStream object
-        videoElement.srcObject = stream;
-
-        // Create a MediaRecorder object and pass the MediaStream object to it
-        mediaRecorder = new MediaRecorder(stream);
-
-        // Add event listeners to handle the dataavailable and stop events
-        mediaRecorder.addEventListener("dataavailable", (event) => {
-          // Send the recorded chunk of data to the server
-          //sendChunkToServer(event.data);
-        });
-        mediaRecorder.addEventListener("stop", () => {
-          // Stop recording and close the MediaStream
-          stream.getTracks().forEach((track) => track.stop());
-        });
-
-        // Start recording
-        mediaRecorder.start();
-      }
-    } catch (error) {
-      console.error(error);
-      // handle the error case here
-    }
-  };
-
-  getMedia();
-
-  return () => {
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-      mediaRecorder.stop();
-    }
-  };
-}, [testType]);
 
 
   const handleGoToFullScreen = (e) => {
@@ -412,6 +406,7 @@ useEffect(() => {
   //   };
   // }, []);
 
+
   const {
     transcript,
     listening,
@@ -428,6 +423,9 @@ useEffect(() => {
   const currentQuestion = questions.slice(indexOfFirstPost, indexOfLastPost);
 const [intervalId, setIntervalId] = useState(null);
 
+
+const [isVideoTestReportModalOpen, setIsVideoTestReportModalOpen] =
+    useState(false);
 
 async function fetchTestTime() {
   try {
@@ -989,7 +987,7 @@ const sendAudioData = async () => {
     });
     addAnswer(optionValue, qNo, qType);
   };
-  
+
 
   const handleUserDiscriptionChange = (e, qNo, qType) => {
     const value = e.target.value;
@@ -1091,7 +1089,7 @@ const handleTestEndConfirm = async (e) => {
 
   return (
     <div>
-    
+
 
       <Container style={{ marginTop: "2em" }}>
         {/* <Segment.Group> */}
@@ -1169,7 +1167,7 @@ const handleTestEndConfirm = async (e) => {
 </Form>
 </Grid.Column>
 <Grid.Column width={6} textAlign="center">
-<Button color="green" onClick={sendAudioData} style={{ marginTop: 15 }}  className="modern-button">Save</Button>
+<Button color="green" onClick={() => {sendAudioData(); stopRecording()}} style={{ marginTop: 15 }}  className="modern-button">Save</Button>
 <br />
 <br />
 <Icon size="big" link name={listening ? "microphone" : "microphone slash"} onClick={(e) => handleRecording(e, question_no, question_type, questions)} color={listening ? "green" : "red"} />
@@ -1183,7 +1181,7 @@ const handleTestEndConfirm = async (e) => {
       <Button color="blue" onClick={handlePreviousClick} className="modern-button">Previous</Button>
     </Grid.Column>
     <Grid.Column floated="right">
-      <Button color="blue" onClick={() => { handleNextClick(); handleResetReportData(); }} className="modern-button">Next</Button>
+      <Button color="blue" onClick={() => { handleNextClick(); handleResetReportData(); startRecording(); }} className="modern-button">Next</Button>
     </Grid.Column>
   </Grid>
 </Segment>
@@ -1191,9 +1189,29 @@ const handleTestEndConfirm = async (e) => {
 </Segment.Group>
 </Segment>
 )) : "No questions found"}
+
 </div>
 
+<div className={styles["video-container"]}>
+  <video
+    ref={videoRef}
+    autoPlay
+    controls // Add the controls attribute
+    src={recordedVideoUrl}
+    className={mirrorMode ? styles.mirror : ""}
+  />
+          <Button color="blue" onClick={() => setMirrorMode(!mirrorMode)} style={{ marginTop: '10px' }}>
+          <Icon name="file alternate outline" />
+          {mirrorMode ? "Revert" : "Mirror"} Mode
+        </Button>
 
+
+        <Button className="modern-button" onClick={startRecording}>Start</Button>
+        <Button className="modern-button" onClick={stopRecording}>Stop</Button>
+        <Button className="modern-button" onClick={handleSubmit}>SUBMIT</Button>
+
+
+</div>
         </Segment>
 
         {isTestEndMsgModal ? (
@@ -1209,27 +1227,17 @@ const handleTestEndConfirm = async (e) => {
 
     <Grid columns="equal">
       <Grid.Column>
-        <Button color="blue" onClick={() => GetReport(discriptionValue)} style={{ marginLeft: '10px' }}>
+        <Button color="blue" onClick={() => { handleSubmit(); setIsVideoTestReportModalOpen(true); GetReport(discriptionValue); setShowReport(!showReport)}} style={{ marginLeft: '10px' }}>
           <Icon name="file alternate outline" />
-          Analysis Report
+          {showReport ? 'Hide Report' : 'Analysis Report'}
         </Button>
+
+
       </Grid.Column>
 
-      <Grid.Column width={reportData.type ? 10 : 16} textAlign="center">
-        <div
-          className={styles["video-container"]}
-          onClick={() => setMirrorMode(!mirrorMode)}
-        >
-          <video
-            ref={videoRef}
-            autoPlay
-            controls // Add the controls attribute
-            className={mirrorMode ? styles.mirror : ""}
-          />
-        </div>
-      </Grid.Column>
 
-      {reportData.type && audioReport && (
+
+      {showReport &&reportData.type && audioReport && (
         <Grid.Column width={reportData.type ? 6 : 0}>
           <Segment>
             <Header>Audio Report</Header>
@@ -1253,7 +1261,7 @@ const handleTestEndConfirm = async (e) => {
         </Grid.Column>
       )}
 
-      {reportData.type && (
+      {showReport &&reportData.type && (
         <Grid.Column width={audioReport ? 10 : 16}>
           <Segment>
             <Header as='h2'>Written Communication Report</Header>
@@ -1295,6 +1303,183 @@ const handleTestEndConfirm = async (e) => {
         </Grid.Column>
       )}
 
+{showReport && isVideoTestReportModalOpen && (
+  <Grid centered>
+    <Grid.Row columns={1}>
+      <Grid.Column textAlign="center">
+        <Header as="h3">Dominant Expression: {dominantEmotion}</Header>
+        {dominantEmotion === 'Charming' && (
+          <Image
+            src="/Happy Emoji.png"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+        {dominantEmotion === 'Sad' && (
+          <Image
+            src="/Very Sad Emoji.png"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+        {dominantEmotion === 'Neutral' && (
+          <Image
+            src="/Neutral Face Emoji.png"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+        {dominantEmotion === 'Negative' && (
+          <Image
+            src="/Angry Emoji.png"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+        {dominantEmotion === 'Worried' && (
+          <Image
+            src="/worried-face-people.gif"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+        {dominantEmotion === 'Nervous' && (
+          <Image
+            src="/Cold Sweat Emoji.png"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+        {dominantEmotion === 'Confident' && (
+          <Image
+            src="/smiling-face-with-sunglasses-people.gif"
+            alt="#"
+            width={100}
+            height={34}
+            bordered
+            rounded
+            style={{margin: '5px'}}
+            onMouseEnter={(e) => e.target.style.boxShadow = '1px 1px 5px #888'}
+            onMouseLeave={(e) => e.target.style.boxShadow = ''}
+          />
+        )}
+      </Grid.Column>
+    </Grid.Row>
+
+    <Grid.Row columns={1}>
+
+
+    </Grid.Row>
+  </Grid>
+)}
+<Grid.Row>
+<Grid.Column width={reportData.type ? 10 : 16} textAlign="center">
+
+<div>
+
+      {showReport &&response && (
+  <div style={{ border: '1px solid black', padding: '10px' }}>
+    <h2>API Response</h2>
+    <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <tbody>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>User ID:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.user_id}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Test ID:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.test_id}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Unknown Faces Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.unknown_faces_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Multiple Faces Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.multiple_faces_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Gaze Out Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.gaze_out_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Cell Phone Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.cell_phone_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Book Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.book_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Text Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.text_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Blink Count:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.blink_count}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Body language is nervous:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.body_language_nervousness}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>Dominant Emotion is:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.dominant_emotion}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>blink nervousness is:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.blink_nervousness}</td>
+        </tr>
+        <tr>
+          <td style={{ border: '1px solid black', padding: '5px' }}>end_test is:</td>
+          <td style={{ border: '1px solid black', padding: '5px' }}>{response.done.end_test}</td>
+        </tr>
+          </tbody>
+    </table>
+  </div>
+)}
+
+
+    </div>
+
+      </Grid.Column>
+      </Grid.Row>
     </Grid>
   </Segment>
 )}
@@ -1304,15 +1489,20 @@ const handleTestEndConfirm = async (e) => {
 
 
 
+
+
+
+
+
       </Container>
-      {
+      {/*
         <Confirm
           open={!isFullScreen ? true : false}
           content="Please Go to FullScreen or Test will be Ended"
           onCancel={handleCancelGoToFullScreen}
           onConfirm={handleGoToFullScreen}
         />
-      }
+      */}
       {/* // ) : null */}
     </div>
   );
