@@ -79,6 +79,48 @@ export default function Test() {
 const [showReport, setShowReport] = useState(false);
 
 
+  const router = useRouter();
+  const [audioReport, setAudioReport] = useState(null);
+  const [userId, setUserId] = useState("");
+  const [testId, setTestId] = useState("");
+  const [user, setUser] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [questionsPerPage, SetQuestionsPerPage] = useState(1);
+  const [optionValue, setOptionValue] = useState(null);
+  const [discriptionValue, setDiscriptionValue] = useState("");
+  const [transcriptValue, setTranscriptValue] = useState("");
+  const [question, setQuestion] = useState("");
+  const [questionNo, setQuestionNo] = useState(null);
+  const [questionType, setQuestionType] = useState("");
+  const [answers, setAnswers] = useState([]);
+  const [selectedPageanswers, setSelectedPageAnswers] = useState([]);
+  const [testResult, setTestResult] = useState({});
+  const [audioTestResult, setAudioTestResult] = useState({});
+  const [graphData, setGraphData] = useState([]);
+  const [graphOptions, setGraphOptions] = useState({});
+  const [isTestStarted, setIsTestStarted] = useState(true);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isFullScreenConfirmModalOpen, setIsFullScreenConfirmModalOpen] =
+    useState(false);
+  const [socket, setSocket] = useState(null);
+  const [message, setMessage] = useState("");
+  const [testType, setTestType] = useState(false);
+  const [count, setCount] = useState(0);
+  const [postBody, setPostBody] = useState("");
+  const [editor, setEditor] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isAudioRecording, setIsAudioRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(`00:00:00`);
+  const [isTestEndMsgModal, setIsTestEndMsgModal] = useState(false);
+  const [mirrorMode, setMirrorMode] = useState(false);
+
+  const mediaRecorderRef = useRef(null);
 
   const [mediaStream, setMediaStream] = useState(null);
   const [recordedChunks, setRecordedChunks] = useState([]);
@@ -87,116 +129,127 @@ const [showReport, setShowReport] = useState(false);
   const [dominantEmotion, setDominantEmotion] = useState("Confident");
   const videoRef = useRef();
 
-  const startRecording = async () => {
+const [recorder, setRecorder] = useState(null);
+let timerId;
+  let recorder_new;
+
+const startRecording = async () => {
   setRecordedChunks([]);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      setMediaStream(stream);
-      const recorder = new MediaRecorder(stream);
-      recorder.addEventListener("dataavailable", (event) => {
-        setRecordedChunks((prev) => [...prev, event.data]);
-      });
-      recorder.start();
-      console.log('recording started')
-      videoRef.current.srcObject = stream; // Set the MediaStream object as the source for the video element
-    } catch (error) {
-      console.error(error);
-    }
-  };
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+    setMediaStream(stream);
+    const newRecorder = new MediaRecorder(stream);
+    newRecorder.addEventListener("dataavailable", (event) => {
+      setRecordedChunks((prev) => [...prev, event.data]);
+    });
+    newRecorder.start();
+    console.log('recording started')
+    videoRef.current.srcObject = stream;
+    setRecorder(newRecorder);
+  } catch (error) {
+    console.error(error);
+  }
+};
 
-  const stopRecording = () => {
-    if (mediaStream) {
+const stopRecording = async() => {
+  if (recorder) {
     console.log('stopping recording')
-      mediaStream.getTracks().forEach((track) => track.stop());
-    }
-  };
+    await recorder.stop();
+    await mediaStream.getTracks().forEach((track) => track.stop());
+  }
+};
+
+const handleSubmit = async (event) => {
+  event.preventDefault();
+
+  // Stop recording before submitting the video
+
+  setRecordedChunks((recordedChunks) => [...recordedChunks]);
+
+  if (recordedChunks.length === 0) {
+    console.log("Please start recording and enter a user ID and test ID.");
+    return;
+  }
+
+  setProcessing(true);
+
+  const formData = new FormData();
+  const blob = new Blob(recordedChunks, { type: "video/mp4" });
+  console.log("recordedChunks:", recordedChunks);
+  formData.append("video", blob, "proctor_video.mp4");
+  formData.append("user_id", userId);
+  formData.append("test_id", testId);
+
+  try {
+    const response = await fetch("http://127.0.0.1:8000/get_video", {
+      method: "POST",
+      headers: {
+        Cookie: "csrftoken=VSOQLIi31g7AIVCbLd23U0bT33sBjXlTp1toBFgcSeu9DoUCduj7CnHDvPVbLWfn",
+      },
+      body: formData,
+    });
+    const data = await response.json();
+    console.log(data);
+    setResponse(data);
+    setDominantEmotion(data.done.dominant_emotion);
+  } catch (error) {
+    console.error(error);
+  } finally {
+    setProcessing(false);
+    setRecordedChunks([]);
+  }
+};
 
 
-  const handleSubmit = async (event) => {
-    //event.preventDefault();
-
-    if (recordedChunks.length === 0 ) {
-      console.log("Please start recording and enter a user ID and test ID.");
-      //return;
-    }
-
-    setProcessing(true);
-
-    const formData = new FormData();
-    const blob = new Blob(recordedChunks, { type: "video/mp4" });
-    formData.append("video", blob, "proctor_video.mp4");
-    formData.append("user_id", userId);
-    formData.append("test_id", testId);
-
-    try {
-      const response = await fetch("http://127.0.0.1:8000/get_video", {
-        method: "POST",
-        headers: {
-          Cookie: "csrftoken=VSOQLIi31g7AIVCbLd23U0bT33sBjXlTp1toBFgcSeu9DoUCduj7CnHDvPVbLWfn",
-        },
-        body: formData,
-      });
-      const data = await response.json();
-      console.log(data);
-      setResponse(data);
-      setDominantEmotion(data.done.dominant_emotion);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setProcessing(false);
-    }
-  };
 
   const recordedVideoUrl = recordedChunks.length > 0 ? URL.createObjectURL(new Blob(recordedChunks, { type: "video/mp4" })) : null;
 
+
+  const RECORDING_INTERVAL = 5000; // 5 seconds in milliseconds
+const WAIT_INTERVAL = 5000; // 5 seconds in milliseconds
+
+  // Function to handle the entire recording and submission process
+  const handleRecordingVid = async () => {
+    // Start recording
+    await startRecording();
+    // Set a timeout to stop recording and submit the form after RECORDING_INTERVAL milliseconds
+    timerId = setTimeout(async () => {
+      await stopRecording();
+      handleSubmit();
+
+      // Set a timeout to start recording again after WAIT_INTERVAL milliseconds
+      setTimeout(() => {
+
+        handleRecordingVid();
+      }, WAIT_INTERVAL);
+    }, RECORDING_INTERVAL);
+  };
+
+  // Call the handleRecording function when the component mounts
+
+
+
+
+
+
+
+
+
 useEffect(() => {
-  let mediaRecorder = null;
 
-  const getMedia = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
 
-      const videoElement = videoRef.current;
-      if (videoElement) {
-        // Set the srcObject property of the video element to the MediaStream object
-        videoElement.srcObject = stream;
-
-        // Create a MediaRecorder object and pass the MediaStream object to it
-        mediaRecorder = new MediaRecorder(stream);
-
-        // Add event listeners to handle the dataavailable and stop events
-        mediaRecorder.addEventListener("dataavailable", (event) => {
-          // Send the recorded chunk of data to the server
-          //sendChunkToServer(event.data);
-        });
-        mediaRecorder.addEventListener("stop", () => {
-          // Stop recording and close the MediaStream
-          stream.getTracks().forEach((track) => track.stop());
-        });
-
-        // Start recording
-        mediaRecorder.start();
-      }
-    } catch (error) {
-      console.error(error);
-      // handle the error case here
-    }
-  };
-
-  getMedia();
-
-  return () => {
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-      mediaRecorder.stop();
-    }
-  };
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    mediaRecorder.stop();
+  }
 }, [testType]);
+
+
+
+
+
 
 
 
@@ -267,48 +320,7 @@ const GetReport = async (currentQuestion) => {
   }
 };
 
-  const router = useRouter();
-  const [audioReport, setAudioReport] = useState(null);
-  const [userId, setUserId] = useState("");
-  const [testId, setTestId] = useState("");
-  const [user, setUser] = useState(null);
-  const [questions, setQuestions] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [questionsPerPage, SetQuestionsPerPage] = useState(1);
-  const [optionValue, setOptionValue] = useState(null);
-  const [discriptionValue, setDiscriptionValue] = useState("");
-  const [transcriptValue, setTranscriptValue] = useState("");
-  const [question, setQuestion] = useState("");
-  const [questionNo, setQuestionNo] = useState(null);
-  const [questionType, setQuestionType] = useState("");
-  const [answers, setAnswers] = useState([]);
-  const [selectedPageanswers, setSelectedPageAnswers] = useState([]);
-  const [testResult, setTestResult] = useState({});
-  const [audioTestResult, setAudioTestResult] = useState({});
-  const [graphData, setGraphData] = useState([]);
-  const [graphOptions, setGraphOptions] = useState({});
-  const [isTestStarted, setIsTestStarted] = useState(true);
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [isFullScreenConfirmModalOpen, setIsFullScreenConfirmModalOpen] =
-    useState(false);
-  const [socket, setSocket] = useState(null);
-  const [message, setMessage] = useState("");
-  const [testType, setTestType] = useState(false);
-  const [count, setCount] = useState(0);
-  const [postBody, setPostBody] = useState("");
-  const [editor, setEditor] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const [isAudioRecording, setIsAudioRecording] = useState(false);
-  const [audioBlob, setAudioBlob] = useState(null);
-  const [audioUrl, setAudioUrl] = useState(null);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
-  const [audioChunks, setAudioChunks] = useState([]);
-  const [timeLeft, setTimeLeft] = useState(`00:00:00`);
-  const [isTestEndMsgModal, setIsTestEndMsgModal] = useState(false);
-  const [mirrorMode, setMirrorMode] = useState(false);
 
-  const mediaRecorderRef = useRef(null);
 
   const [audioEmotionalReport, setAudioEmotionalReport] = useState({
     series: [],
@@ -1167,7 +1179,7 @@ const handleTestEndConfirm = async (e) => {
 </Form>
 </Grid.Column>
 <Grid.Column width={6} textAlign="center">
-<Button color="green" onClick={() => {sendAudioData(); stopRecording()}} style={{ marginTop: 15 }}  className="modern-button">Save</Button>
+<Button color="green" onClick={() => {sendAudioData();}} style={{ marginTop: 15 }}  className="modern-button">Save</Button>
 <br />
 <br />
 <Icon size="big" link name={listening ? "microphone" : "microphone slash"} onClick={(e) => handleRecording(e, question_no, question_type, questions)} color={listening ? "green" : "red"} />
@@ -1181,7 +1193,7 @@ const handleTestEndConfirm = async (e) => {
       <Button color="blue" onClick={handlePreviousClick} className="modern-button">Previous</Button>
     </Grid.Column>
     <Grid.Column floated="right">
-      <Button color="blue" onClick={() => { handleNextClick(); handleResetReportData(); startRecording(); }} className="modern-button">Next</Button>
+      <Button color="blue" onClick={() => { handleNextClick(); handleResetReportData(); }} className="modern-button">Next</Button>
     </Grid.Column>
   </Grid>
 </Segment>
@@ -1197,7 +1209,7 @@ const handleTestEndConfirm = async (e) => {
     ref={videoRef}
     autoPlay
     controls // Add the controls attribute
-    src={recordedVideoUrl}
+
     className={mirrorMode ? styles.mirror : ""}
   />
           <Button color="blue" onClick={() => setMirrorMode(!mirrorMode)} style={{ marginTop: '10px' }}>
@@ -1227,7 +1239,7 @@ const handleTestEndConfirm = async (e) => {
 
     <Grid columns="equal">
       <Grid.Column>
-        <Button color="blue" onClick={() => { handleSubmit(); setIsVideoTestReportModalOpen(true); GetReport(discriptionValue); setShowReport(!showReport)}} style={{ marginLeft: '10px' }}>
+        <Button color="blue" onClick={() => { setIsVideoTestReportModalOpen(true); GetReport(discriptionValue); setShowReport(!showReport)}} style={{ marginLeft: '10px' }}>
           <Icon name="file alternate outline" />
           {showReport ? 'Hide Report' : 'Analysis Report'}
         </Button>
