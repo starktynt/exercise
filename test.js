@@ -5,6 +5,7 @@ import "regenerator-runtime/runtime";
 import axios from "axios";
 
 
+
 import VideoTestReportModal from "./videoTestReportModal";
 
 
@@ -119,56 +120,104 @@ const [showReport, setShowReport] = useState(false);
   const [timeLeft, setTimeLeft] = useState(`00:00:00`);
   const [isTestEndMsgModal, setIsTestEndMsgModal] = useState(false);
   const [mirrorMode, setMirrorMode] = useState(false);
-
+  //added by Mitanshu
+  const [selectedOptions, setSelectedOptions] = useState([]);
+  //
   const mediaRecorderRef = useRef(null);
 
   const [mediaStream, setMediaStream] = useState(null);
+  const videoRef = useRef();
+
+
+
+
   const [recordedChunks, setRecordedChunks] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [response, setResponse] = useState(null);
   const [dominantEmotion, setDominantEmotion] = useState("Confident");
-  const videoRef = useRef();
+
 
 const [recorder, setRecorder] = useState(null);
 let timerId;
   let recorder_new;
 
+
+const [isRecordingInitialized, setIsRecordingInitialized] = useState(false);
+
+
+
+
+
+const [issRecording, setIssRecording] = useState(false);
+
+const handleBeforeUnload = (event) => {
+  if (issRecording) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+};
+
+const handleUnload = () => {
+  stopRecording();
+};
+
+const [mediaRecorders, setMediaRecorders] = useState([]);
+
 const startRecording = async () => {
-  setRecordedChunks([]);
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: true,
     });
-    setMediaStream(stream);
-    const newRecorder = new MediaRecorder(stream);
-    newRecorder.addEventListener("dataavailable", (event) => {
-      setRecordedChunks((prev) => [...prev, event.data]);
+    const newVideoRecorder = new MediaRecorder(stream);
+
+    newVideoRecorder.addEventListener("stop", async () => {
+      // remove the stopped recorder from the array
+      setMediaRecorders(recorders => recorders.filter(recorder => recorder !== newVideoRecorder));
     });
-    newRecorder.start();
+
+    newVideoRecorder.start();
     console.log('recording started')
     videoRef.current.srcObject = stream;
-    setRecorder(newRecorder);
+
+    // add the new recorder to the array
+    setMediaRecorders(recorders => [...recorders, newVideoRecorder]);
   } catch (error) {
     console.error(error);
   }
 };
 
-const stopRecording = async() => {
-  if (recorder) {
-    console.log('stopping recording')
-    await recorder.stop();
-    await mediaStream.getTracks().forEach((track) => track.stop());
-  }
+
+const stopRecording = async () => {
+  // loop through all recorders in the array and stop them if they are active
+  await mediaRecorders.forEach(recorder => {
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+      console.log("stopping recording");
+    }
+  });
 };
 
-const handleSubmit = async (event) => {
-  event.preventDefault();
 
-  // Stop recording before submitting the video
+useEffect(() => {
+  startRecording();
 
-  setRecordedChunks((recordedChunks) => [...recordedChunks]);
+  // Add event listeners to handle beforeunload and unload events
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  window.addEventListener("unload", handleUnload);
 
+  // Remove the event listeners when the component unmounts
+  return () => {
+    stopRecording();
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    window.removeEventListener("unload", handleUnload);
+  };
+}, [testType]);
+
+
+
+
+const handleSubmit = async (recording) => {
   if (recordedChunks.length === 0) {
     console.log("Please start recording and enter a user ID and test ID.");
     return;
@@ -199,10 +248,10 @@ const handleSubmit = async (event) => {
     console.error(error);
   } finally {
     setProcessing(false);
-    setRecordedChunks([]);
   }
 };
 
+{/*
 
 
   const recordedVideoUrl = recordedChunks.length > 0 ? URL.createObjectURL(new Blob(recordedChunks, { type: "video/mp4" })) : null;
@@ -238,13 +287,6 @@ const WAIT_INTERVAL = 5000; // 5 seconds in milliseconds
 
 
 
-useEffect(() => {
-
-
-  if (mediaRecorder && mediaRecorder.state === "recording") {
-    mediaRecorder.stop();
-  }
-}, [testType]);
 
 
 
@@ -252,6 +294,7 @@ useEffect(() => {
 
 
 
+*/}
 
 
 const QuizQuestion = ({ currentQuestion, handleUsersSelctionChange, handleUsersMriSelectionChange, handleUserDiscriptionChange, discriptionValue, optionValue, onChange, handleRecording, listening, handlePreviousClick, handleNextClick, handleResetReportData, currentPage }) => {
@@ -384,13 +427,40 @@ const GetReport = async (currentQuestion) => {
 
 
 
-  const handleGoToFullScreen = (e) => {
-    document.documentElement.requestFullscreen();
+const handleGoToFullScreen = (e) => {
+  try {
+    const docElem = document.documentElement;
+    if (docElem.requestFullscreen) {
+      docElem.requestFullscreen().then(() => {
+        setIsFullScreen(true);
+      }).catch((err) => {
+        console.error('Error occurred while attempting to go fullscreen:', err);
+        // Handle the error appropriately, e.g. display an error message to the user
+      });
+    }
+    else {
+      console.error('Fullscreen API is not supported by this browser');
+      // Handle the error appropriately, e.g. display an error message to the user
+    }
+
     if (!document.fullscreenElement) {
       // Browser is not in full screen mode
-      setCount(count + 1);
+      setCount((prevCount) => prevCount + 1);
+      if (count >= 3) {
+        setIsConfirmModalOpen(false);
+        setIsTestEndMsgModal(true);
+        handleEndTest(); // call the handleEndTest function here
+      }
     }
-  };
+  } catch (error) {
+    console.error('Error occurred while attempting to go fullscreen:', error);
+    // Handle the error appropriately, e.g. display an error message to the user
+  }
+};
+
+
+
+
 
   // useEffect(() => {
   //   const ws = new WebSocket("ws://127.0.0.1:8000/ws/sc/");
@@ -491,7 +561,7 @@ function startCountdown(endTime) {
     if (timeLeft <= 0) {
       console.log("Time is up!");
       clearInterval(intervalId);
-      handleTimeUp();
+      handleTestEndConfirm();
     } else {
       const hours = Math.floor(timeLeft / 3600) || "00";
       const minutes = Math.floor((timeLeft % 3600) / 60) || "00";
@@ -883,9 +953,10 @@ function toSeconds(timeString) {
       .then((stream) => {
         setIsRecording(true);
         const options = {
-          audioBitsPerSecond: 128000,
-          mimeType: "audio/wav",
-        };
+              audioBitsPerSecond: 256000, // Use a higher bitrate for better audio quality
+              mimeType: "audio/mp3", // Use the MP3 format instead of WAV
+            };
+
         const recorder = new MediaRecorder(stream);
         setMediaRecorder(recorder);
         const audioChunks = [];
@@ -897,7 +968,7 @@ function toSeconds(timeString) {
         recorder.addEventListener("stop", () => {
           setIsAudioRecording(false);
           setAudioChunks([...audioChunks]);
-          const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+          const audioBlob = new Blob(audioChunks, { type: "audio/mp3" });
           setAudioBlob(audioBlob);
           setAudioUrl(URL.createObjectURL(audioBlob));
         });
@@ -909,16 +980,16 @@ function toSeconds(timeString) {
       });
   };
 
-  const stopAudioRecording = () => {
+  const stopAudioRecording = async () => {
     if (mediaRecorder) {
       mediaRecorder.stop();
     }
   };
 
+
 const sendAudioData = async () => {
-  let mp3File = new File([...audioChunks], "audio/wav", {
-    audioBitsPerSecond: 128000,
-    mimeType: "audio/wav",
+    let mp3File = new File([...audioChunks], "recording.mp3", {
+      type: "audio/mp3",
   });
 
   try {
@@ -962,12 +1033,15 @@ const sendAudioData = async () => {
 
   const handleNextClick = (e) => {
 
+
     if (currentPage < questions.length) {
       setCurrentPage(currentPage + 1);
       setIsRecording(false);
       SpeechRecognition.stopListening();
       resetTranscript();
       setDiscriptionValue("");
+      setSelectedOptions([]);
+      setSelectedQNo(qNo);
       const foundValue =
         selectedPageanswers.find(({ pageNo }) => pageNo === currentPage + 1) ||
         {};
@@ -987,18 +1061,48 @@ const sendAudioData = async () => {
     setOptionValue(option);
     addAnswer(option, qNo, qType);
   };
-
-
+  
+  const [selectedQNo, setSelectedQNo] = useState(null);
   const handleUsersMriSelectionChange = (option, qNo, qType) => {
-    setOptionValue(prevOptionValue => {
-      if (prevOptionValue.includes(option)) {
-        return prevOptionValue.filter((val) => val !== option);
-      } else {
-        return [...prevOptionValue, option];
-      }
-    });
-    addAnswer(optionValue, qNo, qType);
+    // If the question number has changed, reset selectedOptions to null
+    if (qNo !== selectedQNo) {
+      setSelectedOptions([]);
+      setSelectedQNo(qNo);
+    }
+  
+    // Create a new array of selected options based on the current state
+    const newSelectedOptions = [...selectedOptions];
+  
+    // Check if the option is already selected
+    const index = newSelectedOptions.indexOf(option);
+  
+    if (index > -1) {
+      // If the option is already selected, remove it from the array
+      newSelectedOptions.splice(index, 1);
+    } else {
+      // If the option is not selected, add it to the array
+      newSelectedOptions.push(option);
+    }
+  
+    // Update the state with the new array of selected options
+    setSelectedOptions(newSelectedOptions);
+  
+    // Pass the array of selected options to the addAnswer function
+    addAnswer(newSelectedOptions, qNo, qType);
   };
+  
+    
+
+//  const handleUsersMriSelectionChange = (option, qNo, qType) => {
+//    setOptionValue(prevOptionValue => {
+//      if (prevOptionValue.includes(option)) {
+//        return prevOptionValue.filter((val) => val !== option);
+//      } else {
+//        return [...prevOptionValue, option];
+//      }
+//    });
+//    addAnswer(optionValue, qNo, qType);
+//  };
 
 
   const handleUserDiscriptionChange = (e, qNo, qType) => {
@@ -1032,6 +1136,10 @@ const handleTestEndConfirm = async (e) => {
       testEndFlag(userId, testId, formattedTime),
       fetchTestInfo()
     ]);
+
+    // Update the UI with the new test information
+    // ...
+
   } catch (error) {
     console.error("Error during test end confirm:", error);
     // handle the error case here
@@ -1040,29 +1148,25 @@ const handleTestEndConfirm = async (e) => {
   setIsTestStarted(false);
 };
 
-
+let exitFullScreenCount = 0;
 
   const handleCancelGoToFullScreen = async (e) => {
     const currentTime = moment();
-    router.push("/testList");
+
     // Format current time in hh:mm:ss
     const formattedTime = currentTime.format("h:mm:ss");
     await submitAnswers(answers);
     await testEndFlag(userId, testId, formattedTime);
     setIsTestStarted(false);
     fetchTestInfo();
-  };
-
-  // useEffect(() => {
-  //   if (count > 3) {
-  //     handleEndTest();
-  //   }
-  // }, [count]);
-
-  const handleNavigationToTest = async (e) => {
-    setIsTestEndMsgModal(false);
     router.push("/testList");
+    window.location.reload();
   };
+
+const handleNavigationToTest = async (e) => {
+  setIsTestEndMsgModal(false);
+  router.push("/testList");
+};
 
 
 
@@ -1070,21 +1174,29 @@ const handleTestEndConfirm = async (e) => {
     const testQuestions = await getTestQuestions(testId);
     setQuestions(testQuestions && testQuestions.question);
   }
+const [isRecordingComplete, setIsRecordingComplete] = useState(false);
 
-  const handleRecording = (e, qNo, qType, q) => {
-    if (!isRecording) {
-      setQuestion(q);
-      setQuestionNo(qNo);
-      setQuestionType(qType);
-      setIsRecording(true);
-      SpeechRecognition.startListening({ continuous: true });
-      startAudioRecording();
-    } else {
-      setIsRecording(false);
-      SpeechRecognition.stopListening();
-      stopAudioRecording();
-    }
-  };
+const handleRecording = (e, qNo, qType, q) => {
+  if (!isRecording) {
+    setIsRecordingComplete(false); // set the isRecordingComplete state to false before starting a new recording
+    setQuestion(q);
+    setQuestionNo(qNo);
+    setQuestionType(qType);
+    setIsRecording(true);
+    SpeechRecognition.startListening({ continuous: true });
+    startAudioRecording();
+  } else {
+    setIsRecording(false);
+    SpeechRecognition.stopListening();
+    stopAudioRecording();
+    setIsRecordingComplete(true);
+    sendAudioData();
+    // set the isRecordingComplete state to true after stopping the recording
+  }
+};
+
+
+
 
   useEffect(() => {
     const userIdData = JSON.parse(sessionStorage.getItem("userId"));
@@ -1113,7 +1225,11 @@ const handleTestEndConfirm = async (e) => {
                 Time Left :{timeLeft ? timeLeft : 0}
               </Button>
               <Button
-                onClick={(e) => setIsConfirmModalOpen(true)}
+                onClick={(e) => {
+                      setIsConfirmModalOpen(true);
+
+                    }}
+
                 floated="right"
                 color="blue"
               >
@@ -1149,10 +1265,18 @@ const handleTestEndConfirm = async (e) => {
 ) : question_type === "mri" ? (
 <Segment>
 <List selection>
+// Render the checkboxes with multiple selection enabled
+// Render the checkboxes with multiple selection enabled
 {options.map((_data) => (
-<List.Item key={_data}>
-<Checkbox onClick={(e) => handleUsersMriSelectionChange(_data, question_no, question_type)} value={_data} checked={_data === optionValue} label={_data} className="modern-checkbox" />
-</List.Item>
+  <List.Item key={_data}>
+    <Checkbox 
+      onClick={(e) => handleUsersMriSelectionChange(_data, question_no,question_type)} 
+      value={_data} 
+      checked={selectedOptions.includes(_data)} 
+      label={_data} 
+      className="modern-checkbox" 
+    />
+  </List.Item>
 ))}
 </List>
 </Segment>
@@ -1179,11 +1303,9 @@ const handleTestEndConfirm = async (e) => {
 </Form>
 </Grid.Column>
 <Grid.Column width={6} textAlign="center">
-<Button color="green" onClick={() => {sendAudioData();}} style={{ marginTop: 15 }}  className="modern-button">Save</Button>
-<br />
-<br />
-<Icon size="big" link name={listening ? "microphone" : "microphone slash"} onClick={(e) => handleRecording(e, question_no, question_type, questions)} color={listening ? "green" : "red"} />
+  <Icon size="big" link name={listening ? "microphone" : "microphone slash"} onClick={(e) => handleRecording(e, question_no, question_type, questions)} color={listening ? "green" : "red"} />
 </Grid.Column>
+
 </Grid>
 </Segment>
 )}
@@ -1204,26 +1326,7 @@ const handleTestEndConfirm = async (e) => {
 
 </div>
 
-<div className={styles["video-container"]}>
-  <video
-    ref={videoRef}
-    autoPlay
-    controls // Add the controls attribute
 
-    className={mirrorMode ? styles.mirror : ""}
-  />
-          <Button color="blue" onClick={() => setMirrorMode(!mirrorMode)} style={{ marginTop: '10px' }}>
-          <Icon name="file alternate outline" />
-          {mirrorMode ? "Revert" : "Mirror"} Mode
-        </Button>
-
-
-        <Button className="modern-button" onClick={startRecording}>Start</Button>
-        <Button className="modern-button" onClick={stopRecording}>Stop</Button>
-        <Button className="modern-button" onClick={handleSubmit}>SUBMIT</Button>
-
-
-</div>
         </Segment>
 
         {isTestEndMsgModal ? (
@@ -1237,15 +1340,33 @@ const handleTestEndConfirm = async (e) => {
 {testType && (
   <Segment>
 
+
+
     <Grid columns="equal">
       <Grid.Column>
-        <Button color="blue" onClick={() => { setIsVideoTestReportModalOpen(true); GetReport(discriptionValue); setShowReport(!showReport)}} style={{ marginLeft: '10px' }}>
+        <Button color="blue" onClick={() => {GetReport(discriptionValue); setShowReport(!showReport)}} style={{ marginLeft: '10px' }}>
           <Icon name="file alternate outline" />
           {showReport ? 'Hide Report' : 'Analysis Report'}
         </Button>
+        <Button color="blue" onClick={() => setMirrorMode(!mirrorMode)} style={{ marginTop: '10px' }}>
+          {mirrorMode ? "Revert" : "Mirror"} Mode
+        </Button>
+
 
 
       </Grid.Column>
+      { (
+      <div className={styles["video-container"]}>
+  <video
+    ref={videoRef}
+    autoPlay
+    controls // Add the controls attribute
+
+    className={mirrorMode ? styles.mirror : ""}
+  />
+</div>
+)}
+
 
 
 
@@ -1425,7 +1546,7 @@ const handleTestEndConfirm = async (e) => {
 
 <div>
 
-      {showReport &&response && (
+      {showReport && response && (
   <div style={{ border: '1px solid black', padding: '10px' }}>
     <h2>API Response</h2>
     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -1497,25 +1618,17 @@ const handleTestEndConfirm = async (e) => {
 )}
 
 
-
-
-
-
-
-
-
-
-
       </Container>
-      {/*
+
         <Confirm
           open={!isFullScreen ? true : false}
-          content="Please Go to FullScreen or Test will be Ended"
-          onCancel={handleCancelGoToFullScreen}
+          content="Click Ok to Go to FullScreen or Test will be Ended automatically"
+          onCancel={handleGoToFullScreen}
           onConfirm={handleGoToFullScreen}
         />
-      */}
+
       {/* // ) : null */}
     </div>
   );
 }
+
